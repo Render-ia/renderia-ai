@@ -1,0 +1,23 @@
+{
+  "name": "renderia-ai",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Render.IA - Servicio de IA que detecta elementos estructurales en planos 2D",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/src/server.js",
+    "dev": "tsc --watch",
+    "test": "tsc && node --test dist/test/"
+  },
+  "dependencies": {
+    "sharp": "^0.35.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "~6.0.2"
+  }
+}
