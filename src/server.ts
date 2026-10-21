@@ -49,15 +49,20 @@ export const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/analyze') {
-      if (!hasValidKey(req)) return send(res, 401, { message: 'Clave del servicio de IA inválida.' });
+      if (!hasValidKey(req)) {
+        console.warn('[analyze] petición sin la clave correcta (X-API-Key)');
+        return send(res, 401, { message: 'Clave del servicio de IA inválida.' });
+      }
       const body = await readJson(req);
       const result = await service.analyze(body);
+      console.log(`[analyze] ${result.provider}: ${result.elements.length} elementos en ${result.durationMs} ms`);
       return send(res, 200, result);
     }
 
     return send(res, 404, { message: 'Ruta no encontrada.' });
   } catch (error) {
     if (error instanceof BadRequestError) {
+      console.warn('[analyze] petición rechazada:', error.message);
       return send(res, 400, { message: error.message });
     }
     // Errors thrown by the analyzer (blank plan, no walls...) are meant for the user.
