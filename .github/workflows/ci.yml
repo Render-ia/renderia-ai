@@ -8,23 +8,23 @@ on:
 
 jobs:
   build:
-    name: Compilar y probar
+    name: Build and test
     runs-on: ubuntu-latest
 
     steps:
-      - name: Descargar el código
+      - name: Check out the code
         uses: actions/checkout@v4
 
-      - name: Instalar Node.js 22
+      - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: Instalar dependencias
+      - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Compilar y correr las pruebas
+      - name: Compile and run the tests
         run: npm test
 
-      - name: Construir la imagen de Docker
+      - name: Build the Docker image
         run: docker build -t renderia-ai .
