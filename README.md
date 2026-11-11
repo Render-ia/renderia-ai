@@ -76,7 +76,7 @@ Errores: `400` si la petición está mal, `401` si falta la clave, `422` si el p
 6. Deduce **puertas y ventanas** de los huecos entre tramos de un muro, **vigas** entre columnas unidas por un muro y la **losa** con el contorno del edificio.
 7. Pasa de píxeles a metros con la escala del dibujo (escaneo a 150 ppp).
 
-Con `samples/plano-casa.svg` a escala 1:100 encuentra 18 muros, 11 columnas, 6 puertas, 5 ventanas, 15 vigas y la losa (lo comprueban las pruebas).
+Con `samples/house-floor-plan.svg` a escala 1:100 encuentra 18 muros, 11 columnas, 6 puertas, 5 ventanas, 15 vigas y la losa (lo comprueban las pruebas).
 
 ## Patrones de diseño
 

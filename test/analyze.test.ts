@@ -6,13 +6,13 @@ import { test } from 'node:test';
 import { LocalVisionAnalyzer } from '../src/analyzers/LocalVisionAnalyzer.ts';
 import { SampleAnalyzer } from '../src/analyzers/SampleAnalyzer.ts';
 
-const samplePath = new URL('../../samples/plano-casa.svg', import.meta.url);
+const samplePath = new URL('../../samples/house-floor-plan.svg', import.meta.url);
 
 function count(elements: { type: string }[], type: string): number {
   return elements.filter((e) => e.type === type).length;
 }
 
-test('el detector de visión encuentra los elementos de la casa de ejemplo', async () => {
+test('the vision detector finds every element of the sample house', async () => {
   const image = await readFile(samplePath);
   const { elements } = await new LocalVisionAnalyzer().analyze({ image, scale: '1:100', modelIdentifier: 'renderia-vision-v1' });
 
@@ -24,7 +24,7 @@ test('el detector de visión encuentra los elementos de la casa de ejemplo', asy
   assert.equal(count(elements, 'Losa'), 1);
 });
 
-test('el detector rechaza un plano en blanco', async () => {
+test('the detector rejects a blank plan', async () => {
   const blank = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><rect width="400" height="300" fill="#fff"/></svg>');
   await assert.rejects(
     new LocalVisionAnalyzer().analyze({ image: blank, scale: '1:100', modelIdentifier: 'x' }),
@@ -32,12 +32,12 @@ test('el detector rechaza un plano en blanco', async () => {
   );
 });
 
-test('la respuesta de ejemplo devuelve siempre la casa de ejemplo', async () => {
+test('the sample analyzer always returns the sample house', async () => {
   const { elements } = await new SampleAnalyzer().analyze({ image: Buffer.alloc(0), scale: '1:100', modelIdentifier: 'mock-v1' });
   assert.equal(elements.length, 56);
 });
 
-test('POST /analyze descarga la imagen y devuelve los elementos', async () => {
+test('POST /analyze downloads the image and returns the elements', async () => {
   const svg = await readFile(samplePath);
   const images = createServer((_req, res) => {
     res.writeHead(200, { 'Content-Type': 'image/svg+xml' });
@@ -55,7 +55,7 @@ test('POST /analyze descarga la imagen y devuelve los elementos', async () => {
     const ok = await fetch(`http://127.0.0.1:${port}/analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imageUrl: `http://127.0.0.1:${imagesPort}/plano.svg`, scale: '1:100', provider: 'local-vision' }),
+      body: JSON.stringify({ imageUrl: `http://127.0.0.1:${imagesPort}/floor-plan.svg`, scale: '1:100', provider: 'local-vision' }),
     });
     assert.equal(ok.status, 200);
     const body = (await ok.json()) as { elements: unknown[]; provider: string };
@@ -65,14 +65,14 @@ test('POST /analyze descarga la imagen y devuelve los elementos', async () => {
     const foreign = await fetch(`http://127.0.0.1:${port}/analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imageUrl: 'https://example.com/plano.png', scale: '1:100', provider: 'local-vision' }),
+      body: JSON.stringify({ imageUrl: 'https://example.com/floor-plan.png', scale: '1:100', provider: 'local-vision' }),
     });
     assert.equal(foreign.status, 400);
 
     const unknown = await fetch(`http://127.0.0.1:${port}/analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imageUrl: `http://127.0.0.1:${imagesPort}/plano.svg`, scale: '1:100', provider: 'no-existe' }),
+      body: JSON.stringify({ imageUrl: `http://127.0.0.1:${imagesPort}/floor-plan.svg`, scale: '1:100', provider: 'no-existe' }),
     });
     assert.equal(unknown.status, 400);
   } finally {
