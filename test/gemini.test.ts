@@ -104,6 +104,17 @@ test('the client asks for JSON with a schema and retries once on 503', async () 
   assert.ok(calls[1].config?.abortSignal instanceof AbortSignal, 'every call has a timeout');
 });
 
+test('when the main model stays saturated, the client answers with the backup model', async () => {
+  const { calls, client } = fakeGemini([503, 503, 503, { ok: true }]);
+  const result = await client.generateJson<{ ok: boolean }>({ model: 'gemini-3.8-flash', contents: [], schema: {} });
+  assert.deepEqual(result, { ok: true });
+  assert.deepEqual(
+    calls.map((call) => call.model),
+    ['gemini-3.8-flash', 'gemini-3.8-flash', 'gemini-3.8-flash', 'gemini-3.5-flash-lite'],
+  );
+  await assert.rejects(fakeGemini([503, 503, 503, 503, 503, 503]).client.generateJson({ model: 'gemini-3.8-flash', contents: [], schema: {} }), /código 503/);
+});
+
 test('the client explains a bad key, refuses odd model ids and works without key only to say it is off', async () => {
   const request = { model: 'gemini-3.8-flash', contents: [], schema: {} };
   await assert.rejects(fakeGemini([403]).client.generateJson(request), /clave de Gemini/);

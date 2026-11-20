@@ -30,6 +30,13 @@ export interface ImageRequest {
   image?: { mimeType: string; data: string };
 }
 
+/** Internal: a failed call with its HTTP status, so the caller can try the backup model. */
+class GeminiStatusError extends Error {
+  constructor(readonly status: number) {
+    super(`Gemini status ${status}`);
+  }
+}
+
 const RETRYABLE = new Set([429, 500, 503]);
 const MODEL_ID = /^[a-z0-9][a-z0-9.\-]{1,80}$/;
 
@@ -49,6 +56,7 @@ export class GeminiClient {
     generate?: GenerateFn,
     private readonly budget = GeminiBudget.shared,
     private readonly timeoutMs = config.gemini.timeoutMs,
+    private readonly fallbackModel = config.gemini.fallbackModel,
   ) {
     this.generateFn = generate ?? null;
   }
@@ -104,8 +112,28 @@ export class GeminiClient {
     }
     this.budget.take(kind);
 
+    try {
+      return await this.attempt(params);
+    } catch (error) {
+      // The main model is saturated: a lighter model of the same family usually still answers.
+      const status = error instanceof GeminiStatusError ? error.status : -1;
+      const backup = this.fallbackModel;
+      if (kind !== 'text' || !backup || backup === params.model || !(status === 0 || RETRYABLE.has(status))) {
+        throw error instanceof GeminiStatusError ? new GeminiError(GeminiClient.describeStatus(status)) : error;
+      }
+      console.warn(`[gemini] ${params.model} saturado, se intenta con ${backup}`);
+      try {
+        return await this.attempt({ ...params, model: backup });
+      } catch (second) {
+        throw second instanceof GeminiStatusError ? new GeminiError(GeminiClient.describeStatus(second.status)) : second;
+      }
+    }
+  }
+
+  /** Up to three tries on one model, waiting a little longer each time. */
+  private async attempt(params: GenerateContentParameters): Promise<GenerateContentResponse> {
     let lastStatus = 0;
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         const response = await this.generate()({
           ...params,
@@ -118,14 +146,14 @@ export class GeminiClient {
       } catch (error) {
         if (error instanceof GeminiError) throw error;
         lastStatus = error instanceof ApiError ? error.status : 0;
-        const retry = attempt === 1 && (lastStatus === 0 || RETRYABLE.has(lastStatus));
+        const retry = attempt < 3 && RETRYABLE.has(lastStatus);
         // Only the status goes to the log: the error body can echo the prompt or the plan.
         console.warn(`[gemini] intento ${attempt} falló (estado ${lastStatus || 'sin respuesta'})`);
         if (!retry) break;
-        await new Promise((resolve) => setTimeout(resolve, 1500));
+        await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
       }
     }
-    throw new GeminiError(GeminiClient.describeStatus(lastStatus));
+    throw new GeminiStatusError(lastStatus);
   }
 
   private generate(): GenerateFn {
