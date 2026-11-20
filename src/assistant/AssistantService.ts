@@ -114,8 +114,8 @@ export class AssistantService {
         parts: [{ text: m.text.slice(0, 2000) }],
       }));
 
-    // "profundo" uses the advanced model when one is configured; everything else the fast one.
-    const model = body.depth === 'profundo' ? this.models.deep : this.models.fast;
+    // "deep" uses the advanced model when one is configured; everything else the fast one.
+    const model = body.depth === 'deep' ? this.models.deep : this.models.fast;
     const result = await this.client.generateJson<AssistantAnswer>({
       model,
       system: SYSTEM,

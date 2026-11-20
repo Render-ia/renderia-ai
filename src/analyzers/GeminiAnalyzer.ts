@@ -1,4 +1,5 @@
 import { resolveGeminiModel } from '../config.ts';
+import { assumption } from './assumptions.ts';
 import { GeminiError } from '../gemini/GeminiClient.ts';
 import { GeminiPlanReader, type GeminiPlanReading } from '../gemini/PlanReader.ts';
 import { LocalVisionAnalyzer } from './LocalVisionAnalyzer.ts';
@@ -131,14 +132,14 @@ export class GeminiAnalyzer implements PlanAnalyzer {
 
   static geometricAssumptions(scale: string, scaleText: string | null) {
     return [
-      { field: 'Escala', value: scale, source: scaleText ? 'detectado' : 'indicado por el usuario' },
-      { field: 'Espesor de muros', value: 'Medido en el dibujo', source: 'detectado' },
-      { field: 'Altura de muros', value: '2.5 m', source: 'supuesto' },
-      { field: 'Altura de columnas', value: '2.8 m', source: 'supuesto' },
-      { field: 'Altura de puertas', value: '2.1 m', source: 'supuesto' },
-      { field: 'Altura de ventanas', value: '1.2 m', source: 'supuesto' },
-      { field: 'Vigas', value: 'Entre columnas unidas por muro, 0.25 × 0.35 m', source: 'supuesto' },
-      { field: 'Espesor de losa', value: '0.12 m', source: 'supuesto' },
+      assumption('scale', scale, scaleText ? 'detected' : 'user'),
+      assumption('wallThickness', 'Medido en el dibujo', 'detected'),
+      assumption('wallHeight', '2.5 m', 'assumed'),
+      assumption('columnHeight', '2.8 m', 'assumed'),
+      assumption('doorHeight', '2.1 m', 'assumed'),
+      assumption('windowHeight', '1.2 m', 'assumed'),
+      assumption('beamSize', 'Entre columnas unidas por muro, 0.25 × 0.35 m', 'assumed'),
+      assumption('slabThickness', '0.12 m', 'assumed'),
     ];
   }
 }

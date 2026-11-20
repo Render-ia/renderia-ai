@@ -80,7 +80,7 @@ La IA interpreta, la geometría determinista construye y el usuario valida. Gemi
 4. Solo si el detector geométrico no puede leer el plano (foto, dibujo a mano), se usa la geometría de Gemini, con la confianza reducida al 80 % y marcada como propuesta.
 5. Si Gemini no está configurado, se queda sin cupo o falla, el análisis sigue con la geometría y lo avisa. Nunca depende de un servicio externo.
 
-`GeminiPlanReader.toOutput` es una función pura que no le cree todo a Gemini: descarta tipos desconocidos, recorta coordenadas fuera de la imagen, endereza líneas casi ortogonales, rechaza columnas absurdas y convierte a metros con la escala. Lo que el plano no dice sale en `summary.assumptions` como `supuesto`.
+`GeminiPlanReader.toOutput` es una función pura que no le cree todo a Gemini: descarta tipos desconocidos, recorta coordenadas fuera de la imagen, endereza líneas casi ortogonales, rechaza columnas absurdas y convierte a metros con la escala. Lo que el plano no dice sale en `summary.assumptions` con `source: "assumed"` (`{ key, label, value, source }`).
 
 El modelo se elige con `ai_models.model_identifier`: `gemini:flash` usa `GEMINI_MODEL`, `gemini:pro` usa `GEMINI_MODEL_PRO`, y cualquier otro valor se toma como id literal. Así se cambia de modelo sin tocar código ni base de datos.
 
@@ -89,17 +89,17 @@ El modelo se elige con `ai_models.model_identifier`: `gemini:flash` usa `GEMINI_
 ```json
 {
   "question": "¿Qué muros tienen menos de 12 cm de espesor?",
-  "depth": "rapido",
+  "depth": "fast",
   "context": { "project": { "name": "Casa" }, "elements": [{ "id": 12, "type": "Muro", "thickness": 0.1 }] },
   "history": [{ "role": "user", "text": "..." }, { "role": "model", "text": "..." }]
 }
 ```
 
-Responde `{ "answer": "...", "proposals": [{ "title", "reason", "operations": [{ "op": "update", "elementId": 12, "field": "thickness", "value": 0.15 }] }] }`. `depth: "profundo"` usa `GEMINI_MODEL_PRO` si existe. Las propuestas se filtran (solo ids reales, solo `height`/`thickness`/`width`, entre 1 cm y 50 m) y el copiloto **nunca aplica cambios**: el usuario confirma en la app. Marca sus afirmaciones como dato, estimación o recomendación, no inventa medidas ni artículos de norma y no certifica la NSR-10.
+Responde `{ "answer": "...", "proposals": [{ "title", "reason", "operations": [{ "op": "update", "elementId": 12, "field": "thickness", "value": 0.15 }] }] }`. `depth: "deep"` usa `GEMINI_MODEL_PRO` si existe. Las propuestas se filtran (solo ids reales, solo `height`/`thickness`/`width`, entre 1 cm y 50 m) y el copiloto **nunca aplica cambios**: el usuario confirma en la app. Marca sus afirmaciones como dato, estimación o recomendación, no inventa medidas ni artículos de norma y no certifica la NSR-10.
 
 ### POST /render
 
-`{ "image": "<captura PNG del visor 3D en base64>", "style": "moderno|tropical|rustico|contemporaneo|minimalista|tradicional", "scene": "exterior|interior", "notes": "..." }` → `{ "mimeType", "data", "model", "disclaimer" }`. El render se deriva de la vista del modelo 3D: el prompt exige conservar geometría, vanos y encuadre, y solo cambia materiales, luz y entorno. **Apagado por defecto**: solo funciona si se define `GEMINI_IMAGE_MODEL`, porque los modelos de imagen no tienen capa gratuita.
+`{ "image": "<captura PNG del visor 3D en base64>", "style": "modern|tropical|rustic|contemporary|minimalist|traditional", "scene": "exterior|interior", "notes": "..." }` → `{ "mimeType", "data", "model", "disclaimer" }`. El render se deriva de la vista del modelo 3D: el prompt exige conservar geometría, vanos y encuadre, y solo cambia materiales, luz y entorno. **Apagado por defecto**: solo funciona si se define `GEMINI_IMAGE_MODEL`, porque los modelos de imagen no tienen capa gratuita.
 
 ### GET /capabilities
 
@@ -157,7 +157,7 @@ Con `samples/house-floor-plan.svg` a escala 1:100 encuentra 18 muros, 11 columna
 | `GEMINI_IMAGE_MODEL` | vacío (renders apagados) | Modelo de imagen para `/render`, p. ej. `gemini-3.1-flash-image` (de pago) |
 | `GEMINI_DAILY_LIMIT`, `GEMINI_IMAGE_DAILY_LIMIT` | `300`, `20` | Tope diario de llamadas de todo el servicio |
 
-Detalle de modelos, precios y decisiones en [`docs/integracion-gemini.md`](docs/integracion-gemini.md).
+Detalle de modelos, precios y decisiones en [`docs/gemini-integration.md`](docs/gemini-integration.md).
 
 Ejemplo completo en [`.env.example`](.env.example).
 

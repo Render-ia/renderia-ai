@@ -3,12 +3,12 @@ import { GeminiClient, GeminiError } from '../gemini/GeminiClient.ts';
 import { BadRequestError } from '../imageDownloader.ts';
 
 export const RENDER_STYLES = {
-  moderno: 'moderno: líneas limpias, concreto claro, vidrio amplio, carpintería negra',
+  modern: 'moderno: líneas limpias, concreto claro, vidrio amplio, carpintería negra',
   tropical: 'tropical: madera natural, vegetación abundante, aleros amplios, tonos cálidos',
-  rustico: 'rústico: piedra, madera envejecida, teja de barro, acabados artesanales',
-  contemporaneo: 'contemporáneo: volúmenes sobrios, revoque blanco, acentos en madera y metal',
-  minimalista: 'minimalista: blanco dominante, pocos materiales, superficies lisas, luz suave',
-  tradicional: 'tradicional colombiano: muros blancos, teja de barro, balcones y carpintería de madera',
+  rustic: 'rústico: piedra, madera envejecida, teja de barro, acabados artesanales',
+  contemporary: 'contemporáneo: volúmenes sobrios, revoque blanco, acentos en madera y metal',
+  minimalist: 'minimalista: blanco dominante, pocos materiales, superficies lisas, luz suave',
+  traditional: 'tradicional colombiano: muros blancos, teja de barro, balcones y carpintería de madera',
 } as const;
 export type RenderStyle = keyof typeof RENDER_STYLES;
 

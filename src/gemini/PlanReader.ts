@@ -1,4 +1,5 @@
 import sharp from 'sharp';
+import { assumption } from '../analyzers/assumptions.ts';
 import type { AnalysisOutput, DetectedElement, ElementTypeName } from '../analyzers/PlanAnalyzer.ts';
 import { metersPerPixel } from '../scale.ts';
 import { GeminiClient, GeminiError } from './GeminiClient.ts';
@@ -240,14 +241,14 @@ export class GeminiPlanReader {
     }
 
     const assumptions = [
-      { field: 'Altura de muros', value: `${DEFAULTS.wallHeight} m`, source: 'supuesto' },
-      { field: 'Espesor de muros', value: `${DEFAULTS.wallThickness} m`, source: 'supuesto' },
-      { field: 'Altura de columnas', value: `${DEFAULTS.columnHeight} m`, source: 'supuesto' },
-      { field: 'Altura de puertas', value: `${DEFAULTS.doorHeight} m`, source: 'supuesto' },
-      { field: 'Altura de ventanas', value: `${DEFAULTS.windowHeight} m`, source: 'supuesto' },
-      { field: 'Espesor de losa', value: `${DEFAULTS.slabThickness} m`, source: 'supuesto' },
-      { field: 'Escala', value: image.scale, source: scaleText ? 'detectado' : 'indicado por el usuario' },
-      ...(slabAssumed ? [{ field: 'Losa', value: 'Sobre el contorno de los muros', source: 'supuesto' }] : []),
+      assumption('wallHeight', `${DEFAULTS.wallHeight} m`, 'assumed'),
+      assumption('wallThickness', `${DEFAULTS.wallThickness} m`, 'assumed'),
+      assumption('columnHeight', `${DEFAULTS.columnHeight} m`, 'assumed'),
+      assumption('doorHeight', `${DEFAULTS.doorHeight} m`, 'assumed'),
+      assumption('windowHeight', `${DEFAULTS.windowHeight} m`, 'assumed'),
+      assumption('slabThickness', `${DEFAULTS.slabThickness} m`, 'assumed'),
+      assumption('scale', image.scale, scaleText ? 'detected' : 'user'),
+      ...(slabAssumed ? [assumption('slabOutline', 'Sobre el contorno de los muros', 'assumed')] : []),
     ];
 
     const count = (type: ElementTypeName) => elements.filter((e) => e.type === type).length;

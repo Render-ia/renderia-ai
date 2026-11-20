@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import type { Assumption } from '../src/analyzers/assumptions.ts';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { ApiError, type GenerateContentParameters, type GenerateContentResponse } from '@google/genai';
@@ -60,8 +61,8 @@ test('Gemini reading becomes elements in meters with snapped walls and declared 
   assert.equal(elements.filter((e) => e.type === 'Puerta')[0].width, 0.85);
   assert.equal(elements.some((e) => (e.type as string) === 'Ascensor'), false, 'unknown types are dropped');
   assert.equal(elements.filter((e) => e.type === 'Losa').length, 1, 'a slab is added when none is drawn');
-  const assumptions = summary.assumptions as { field: string; source: string }[];
-  assert.ok(assumptions.some((a) => a.field === 'Altura de muros' && a.source === 'supuesto'));
+  const assumptions = summary.assumptions as Assumption[];
+  assert.ok(assumptions.some((a) => a.key === 'wallHeight' && a.source === 'assumed'));
 });
 
 test('coordinates outside the image are clamped and confidence stays in 0..1', () => {
@@ -233,17 +234,17 @@ test('the copilot validates the question, sends the context and picks the deep m
   assert.match(String(calls[0].config?.systemInstruction), /NSR-10/);
   assert.equal((calls[0].contents as unknown[]).length, 2);
   assert.equal(calls[0].model, 'gemini-3.8-flash');
-  await service.ask({ question: 'Analiza a fondo', context: { elements: [] }, depth: 'profundo' });
+  await service.ask({ question: 'Analiza a fondo', context: { elements: [] }, depth: 'deep' });
   assert.equal(calls[1].model, 'gemini-3.1-pro-preview');
 });
 
 // ---------- AI renders ----------
 
 test('renders are off without an image model and validate the capture', async () => {
-  await assert.rejects(new RenderService(fakeGemini([]).client, '').render({ style: 'moderno', image: PNG_1PX }), /no están habilitados/);
+  await assert.rejects(new RenderService(fakeGemini([]).client, '').render({ style: 'modern', image: PNG_1PX }), /no están habilitados/);
   const service = new RenderService(fakeGemini(['image']).client, 'gemini-3.1-flash-image');
   await assert.rejects(service.render({ style: 'gotico', image: PNG_1PX }), /Elige un estilo/);
-  await assert.rejects(service.render({ style: 'moderno', image: Buffer.from('hola').toString('base64') }), /PNG o JPEG/);
+  await assert.rejects(service.render({ style: 'modern', image: Buffer.from('hola').toString('base64') }), /PNG o JPEG/);
 });
 
 test('a render keeps the geometry in the prompt and returns the image with a disclaimer', async () => {
