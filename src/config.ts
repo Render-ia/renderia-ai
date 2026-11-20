@@ -31,6 +31,8 @@ export const config = {
     apiKey: clean(process.env.GEMINI_API_KEY),
     /** Fast model for plans and the copilot. Checked against ai.google.dev/gemini-api/docs/models on 2026-11-20. */
     model: process.env.GEMINI_MODEL?.trim() || 'gemini-3.8-flash',
+    /** Lighter model tried when the main one is saturated (503/429). Empty string = no backup model. */
+    fallbackModel: process.env.GEMINI_FALLBACK_MODEL?.trim() ?? 'gemini-3.5-flash-lite',
     /** Model for deep questions to the copilot. Empty = use GEMINI_MODEL (no stable Pro model exists today). */
     modelPro: process.env.GEMINI_MODEL_PRO?.trim() || '',
     /** Image model for AI renders. Empty = renders off. Image models have no free tier, so they are opt-in. */
