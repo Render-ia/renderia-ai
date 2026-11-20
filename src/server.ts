@@ -7,6 +7,7 @@ import { GeminiError } from './gemini/GeminiClient.ts';
 import { GeminiBudget } from './gemini/GeminiBudget.ts';
 import { RenderService } from './render/RenderService.ts';
 import { BadRequestError } from './imageDownloader.ts';
+import { publicMessage } from './publicError.ts';
 
 const MAX_BODY_BYTES = 64 * 1024;
 /** The copilot receives the whole element list of an analysis. */
@@ -116,9 +117,8 @@ export const server = createServer(async (req, res) => {
       return send(res, 422, { message: error.message });
     }
     // Errors thrown by the analyzer (blank plan, no walls...) are meant for the user.
-    const message = error instanceof Error ? error.message : 'Error inesperado al analizar el plano.';
-    console.error('[analyze]', message);
-    return send(res, 422, { message });
+    console.error('[analyze]', error instanceof Error ? error.message : error);
+    return send(res, 422, { message: publicMessage(error) });
   }
 });
 
