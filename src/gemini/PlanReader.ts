@@ -101,7 +101,9 @@ export class GeminiPlanReader {
     image: { width: number; height: number; scale: string; modelIdentifier: string; name: string },
   ): AnalysisOutput {
     const issues = Array.isArray(reading.issues) ? reading.issues.filter((i) => typeof i === 'string').slice(0, 10) : [];
-    if (reading.legible === false) {
+    const hasContent = (Array.isArray(reading.elements) && reading.elements.length > 0) || (Array.isArray(reading.rooms) && reading.rooms.length > 0);
+    // A doubtful "not legible" that still comes with elements or rooms is kept, with its issues as warnings.
+    if (reading.legible === false && !hasContent) {
       throw new GeminiError(
         `Gemini no pudo interpretar el plano${issues.length ? `: ${issues.join('; ')}` : '.'} Sube una imagen más nítida o usa el detector local.`,
       );
