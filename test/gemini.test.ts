@@ -178,6 +178,17 @@ test('with both readings, the geometry stays deterministic and Gemini adds rooms
   assert.match((summary.warnings as string[]).join(' '), /2 puertas y Gemini ve 1/);
 });
 
+test('when Gemini reads only rooms, the detector keeps the geometry and Gemini still adds the rooms', async () => {
+  const image = await readFile(samplePath);
+  const { client } = fakeGemini([reading({ elements: [] })]);
+  const analyzer = new GeminiAnalyzer(new GeminiPlanReader(client), new FixedGeometry(geometricOutput));
+  const { elements, summary } = await analyzer.analyze({ image, scale: '1:100', modelIdentifier: 'gemini:flash' });
+  assert.deepEqual(elements, geometricOutput.elements);
+  assert.equal((summary.rooms as unknown[]).length, 1);
+  assert.doesNotMatch((summary.warnings as string[]).join(' '), /no participó|Gemini ve/);
+  assert.deepEqual(summary.geminiSeen, { elements: 0, rooms: 1, dimensions: (reading().dimensions ?? []).length });
+});
+
 test('if Gemini fails, the geometric result is still returned with a warning', async () => {
   const image = await readFile(samplePath);
   const { client } = fakeGemini([429, 429]);
