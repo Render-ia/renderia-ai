@@ -4,6 +4,8 @@ import { AnalysisService } from './analysisService.ts';
 import { AssistantService } from './assistant/AssistantService.ts';
 import { assertSafeConfig, config } from './config.ts';
 import { GeminiError } from './gemini/GeminiClient.ts';
+import { GeminiBudget } from './gemini/GeminiBudget.ts';
+import { RenderService } from './render/RenderService.ts';
 import { BadRequestError } from './imageDownloader.ts';
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -11,6 +13,9 @@ const MAX_BODY_BYTES = 64 * 1024;
 const MAX_ASSISTANT_BODY_BYTES = 512 * 1024;
 const service = new AnalysisService();
 const assistant = new AssistantService();
+const renders = new RenderService();
+/** A 4 MB capture becomes ~5.4 MB in base64. */
+const MAX_RENDER_BODY_BYTES = 6 * 1024 * 1024;
 
 function send(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, {
@@ -59,6 +64,15 @@ export const server = createServer(async (req, res) => {
       return send(res, 200, service.availableModels());
     }
 
+    // What the backend needs to know to show or hide Gemini features. Never exposes keys.
+    if (req.method === 'GET' && path === '/capabilities') {
+      return send(res, 200, {
+        gemini: { configured: config.gemini.apiKey.length > 0, model: config.gemini.model, proModel: config.gemini.modelPro || null },
+        renders: { enabled: renders.enabled, model: config.gemini.imageModel || null },
+        usage: GeminiBudget.shared.usage(),
+      });
+    }
+
     if (req.method === 'POST' && path === '/analyze') {
       if (!hasValidKey(req)) {
         console.warn('[analyze] petición sin la clave correcta (X-API-Key)');
@@ -80,6 +94,15 @@ export const server = createServer(async (req, res) => {
       const answer = await assistant.ask(body);
       console.log(`[assistant] respuesta con ${answer.proposals.length} propuestas en ${Math.round(performance.now() - started)} ms`);
       return send(res, 200, answer);
+    }
+
+    if (req.method === 'POST' && path === '/render') {
+      if (!hasValidKey(req)) return send(res, 401, { message: 'Clave del servicio de IA inválida.' });
+      const body = await readJson(req, MAX_RENDER_BODY_BYTES);
+      const started = performance.now();
+      const result = await renders.render(body);
+      console.log(`[render] imagen generada en ${Math.round(performance.now() - started)} ms`);
+      return send(res, 200, result);
     }
 
     return send(res, 404, { message: 'Ruta no encontrada.' });

@@ -1,289 +1,144 @@
-import sharp from 'sharp';
-import { GeminiClient, GeminiError } from '../gemini/GeminiClient.ts';
-import { PLAN_PROMPT, PLAN_RESPONSE_SCHEMA, PLAN_TYPES } from '../gemini/planSchema.ts';
-import { metersPerPixel } from '../scale.ts';
+import { resolveGeminiModel } from '../config.ts';
+import { GeminiError } from '../gemini/GeminiClient.ts';
+import { GeminiPlanReader, type GeminiPlanReading } from '../gemini/PlanReader.ts';
+import { LocalVisionAnalyzer } from './LocalVisionAnalyzer.ts';
 import type { AnalysisInput, AnalysisOutput, DetectedElement, ElementTypeName, PlanAnalyzer } from './PlanAnalyzer.ts';
 
-/** Longest side sent to Gemini. More pixels do not improve the reading and cost tokens. */
-const SEND_SIDE = 2048;
-const MAX_ELEMENTS = 400;
+/** Types whose count is compared between the two readings. */
+const CHECKED: { type: ElementTypeName; label: string }[] = [
+  { type: 'Puerta', label: 'puertas' },
+  { type: 'Ventana', label: 'ventanas' },
+  { type: 'Columna', label: 'columnas' },
+];
+
+/** Confidence kept for Gemini's geometry when the geometric detector could not read the plan. */
+const FALLBACK_CONFIDENCE_FACTOR = 0.8;
 
 /**
- * Values the plan rarely says. They are configurable defaults, never facts:
- * every one is reported in summary.assumptions so the user confirms it.
- */
-export const DEFAULTS = {
-  wallHeight: 2.5,
-  wallThickness: 0.15,
-  columnHeight: 2.8,
-  doorHeight: 2.1,
-  windowHeight: 1.2,
-  beamWidth: 0.25,
-  beamDepth: 0.35,
-  slabThickness: 0.12,
-} as const;
-
-const MATERIALS: Record<ElementTypeName, string | null> = {
-  Muro: 'Ladrillo',
-  Columna: 'Concreto reforzado',
-  Viga: 'Concreto reforzado',
-  Losa: 'Concreto reforzado',
-  Puerta: 'Madera',
-  Ventana: null,
-  Escalera: 'Concreto reforzado',
-};
-
-interface RawBox {
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
-  confidence: number;
-}
-
-export interface GeminiPlanReading {
-  legible: boolean;
-  issues: string[];
-  scaleText?: string | null;
-  elements: (RawBox & { type: string })[];
-  rooms: (RawBox & { name: string })[];
-  dimensions: { text: string; meters?: number | null }[];
-}
-
-const round = (value: number, digits = 2) => Number(value.toFixed(digits));
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
-
-/**
- * Gemini vision ("gemini" in ai_models). Gemini interprets the drawing; this
- * class turns its answer into geometry with deterministic rules: it clamps
- * coordinates, converts them to meters with the plan scale, snaps nearly
- * straight walls and fills unknown sizes with defaults that it marks as
- * assumptions. The model never decides a dimension on its own.
+ * Gemini + geometric vision ("gemini" in ai_models).
+ *
+ * Gemini complements the deterministic detector instead of replacing it:
+ * 1. The geometric detector measures walls, columns, openings and beams.
+ * 2. Gemini reads what geometry cannot: room names, written dimensions, the
+ *    scale written on the sheet and quality problems.
+ * 3. Both readings are compared; disagreements become warnings to review.
+ * 4. Only when the geometric detector cannot read the plan at all (a photo,
+ *    hand drawing...) Gemini's geometry is used, with lower confidence and a
+ *    clear note that it must be validated.
+ * If Gemini is not configured or fails, the geometric result is returned
+ * with a warning, so the analysis never depends on an external service.
  */
 export class GeminiAnalyzer implements PlanAnalyzer {
   readonly provider = 'gemini';
-  readonly name = 'Gemini (visión)';
+  readonly name = 'Gemini + visión geométrica';
 
-  constructor(private readonly client = new GeminiClient()) {}
+  constructor(
+    private readonly reader = new GeminiPlanReader(),
+    private readonly geometry: PlanAnalyzer = new LocalVisionAnalyzer(),
+  ) {}
 
   get configured(): boolean {
-    return this.client.configured;
+    return this.reader.configured;
   }
 
   async analyze(input: AnalysisInput): Promise<AnalysisOutput> {
-    const metadata = await sharp(input.image).metadata();
-    const width = metadata.width ?? 0;
-    const height = metadata.height ?? 0;
-    if (!width || !height) throw new Error('El plano no tiene un tamaño válido.');
+    const model = resolveGeminiModel(input.modelIdentifier);
+    const [geometric, gemini] = await Promise.allSettled([
+      this.geometry.analyze(input),
+      this.reader.read(input.image, model),
+    ]);
 
-    const png = await sharp(input.image)
-      .flatten({ background: '#ffffff' })
-      .resize(SEND_SIDE, SEND_SIDE, { fit: 'inside', withoutEnlargement: true })
-      .png()
-      .toBuffer();
-
-    let reading: GeminiPlanReading;
-    try {
-      reading = await this.client.generateJson<GeminiPlanReading>({
-        model: input.modelIdentifier,
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: PLAN_PROMPT }, { inline_data: { mime_type: 'image/png', data: png.toString('base64') } }],
-          },
-        ],
-        responseSchema: PLAN_RESPONSE_SCHEMA,
-        temperature: 0.1,
-      });
-    } catch (error) {
-      if (error instanceof GeminiError) throw error;
-      throw new GeminiError('No se pudo consultar a Gemini.');
+    let interpretation: AnalysisOutput | null = null;
+    let geminiProblem: string | null = null;
+    if (gemini.status === 'fulfilled') {
+      try {
+        interpretation = GeminiPlanReader.toOutput(gemini.value.reading, {
+          width: gemini.value.width,
+          height: gemini.value.height,
+          scale: input.scale,
+          modelIdentifier: model,
+          name: this.name,
+        });
+      } catch (error) {
+        geminiProblem = (error as Error).message;
+      }
+    } else {
+      geminiProblem = gemini.reason instanceof Error ? gemini.reason.message : 'Gemini no respondió.';
     }
 
-    return GeminiAnalyzer.toOutput(reading, { width, height, scale: input.scale, modelIdentifier: input.modelIdentifier, name: this.name });
+    if (geometric.status === 'fulfilled') {
+      const base = geometric.value;
+      const extra = interpretation?.summary ?? {};
+      const warnings = [
+        ...((extra.warnings as string[] | undefined) ?? []),
+        ...(gemini.status === 'fulfilled' ? GeminiAnalyzer.crossCheck(base.elements, gemini.value.reading) : []),
+        ...(geminiProblem ? [`Gemini no participó (${geminiProblem}). Se muestra solo la geometría detectada.`] : []),
+      ];
+      return {
+        elements: base.elements,
+        summary: {
+          ...base.summary,
+          analyzer: this.name,
+          modelIdentifier: model,
+          geometrySource: 'Detector geométrico (determinista)',
+          interpretationSource: interpretation ? `Gemini (${model})` : null,
+          rooms: extra.rooms ?? [],
+          dimensions: extra.dimensions ?? [],
+          scaleText: extra.scaleText ?? null,
+          assumptions: GeminiAnalyzer.geometricAssumptions(input.scale, (extra.scaleText as string | null) ?? null),
+          warnings,
+        },
+      };
+    }
+
+    // The geometric detector could not read the plan: fall back to Gemini's geometry, flagged as a proposal.
+    if (interpretation) {
+      return {
+        elements: interpretation.elements.map((e) => ({
+          ...e,
+          confidence: Number((e.confidence * FALLBACK_CONFIDENCE_FACTOR).toFixed(4)),
+        })),
+        summary: {
+          ...interpretation.summary,
+          geometrySource: 'Gemini (propuesta: el detector geométrico no pudo leer el plano)',
+          interpretationSource: `Gemini (${model})`,
+          warnings: [
+            `El detector geométrico no pudo leer el plano (${(geometric.reason as Error).message}). La geometría la propuso Gemini: valida cada elemento antes de usar medidas.`,
+            ...((interpretation.summary.warnings as string[] | undefined) ?? []),
+          ],
+        },
+      };
+    }
+
+    // Neither worked: the geometric message is usually the most useful one.
+    const reason = geometric.reason instanceof Error ? geometric.reason.message : 'No se pudo analizar el plano.';
+    throw new GeminiError(geminiProblem ? `${reason} Gemini tampoco pudo leerlo: ${geminiProblem}` : reason);
   }
 
-  /** Pure conversion from Gemini's answer to elements in meters. Exposed for tests. */
-  static toOutput(
-    reading: GeminiPlanReading,
-    image: { width: number; height: number; scale: string; modelIdentifier: string; name: string },
-  ): AnalysisOutput {
-    const issues = Array.isArray(reading.issues) ? reading.issues.filter((i) => typeof i === 'string').slice(0, 10) : [];
-    if (reading.legible === false) {
-      throw new GeminiError(
-        `Gemini no pudo interpretar el plano${issues.length ? `: ${issues.join('; ')}` : '.'} Sube una imagen más nítida o usa el detector local.`,
-      );
-    }
-
-    const mpp = metersPerPixel(image.scale);
-    const mx = (n: number) => round((clamp(n, 0, 1000) / 1000) * image.width * mpp);
-    const my = (n: number) => round((clamp(n, 0, 1000) / 1000) * image.height * mpp);
-    // Lines within 1.5% of horizontal or vertical are snapped: plans are orthogonal far more often than not.
-    const snap = (a: number, b: number) => (Math.abs(a - b) <= 15 ? (a + b) / 2 : null);
-
-    const elements: DetectedElement[] = [];
-    const raw = Array.isArray(reading.elements) ? reading.elements : [];
-    for (const item of raw.slice(0, MAX_ELEMENTS)) {
-      const type = item?.type as ElementTypeName;
-      if (!PLAN_TYPES.includes(type)) continue;
-      if (![item.x1, item.y1, item.x2, item.y2].every(finite)) continue;
-      const confidence = round(clamp(finite(item.confidence) ? item.confidence : 0.5, 0, 1), 4);
-      let { x1, y1, x2, y2 } = item;
-
-      if (type === 'Muro' || type === 'Viga' || type === 'Puerta' || type === 'Ventana') {
-        const sy = snap(y1, y2);
-        const sx = snap(x1, x2);
-        if (sy !== null) y1 = y2 = sy;
-        else if (sx !== null) x1 = x2 = sx;
-        const length = Math.hypot(mx(x2) - mx(x1), my(y2) - my(y1));
-        if (length < 0.2) continue;
-        const base = { type, material: MATERIALS[type], startX: mx(x1), startY: my(y1), endX: mx(x2), endY: my(y2), confidence };
-        if (type === 'Muro') {
-          elements.push({ ...base, width: null, height: DEFAULTS.wallHeight, thickness: DEFAULTS.wallThickness });
-        } else if (type === 'Viga') {
-          elements.push({ ...base, width: DEFAULTS.beamWidth, height: DEFAULTS.beamDepth, thickness: DEFAULTS.beamWidth });
-        } else {
-          const isDoor = type === 'Puerta';
-          elements.push({
-            ...base,
-            width: round(length),
-            height: isDoor ? DEFAULTS.doorHeight : DEFAULTS.windowHeight,
-            thickness: DEFAULTS.wallThickness,
-          });
-        }
-        continue;
-      }
-
-      const left = Math.min(x1, x2);
-      const right = Math.max(x1, x2);
-      const top = Math.min(y1, y2);
-      const bottom = Math.max(y1, y2);
-      if (type === 'Columna') {
-        const sizeX = Math.max(0.15, mx(right) - mx(left));
-        const sizeY = Math.max(0.15, my(bottom) - my(top));
-        if (sizeX > 1.5 || sizeY > 1.5) continue; // A 1.5 m "column" is a misreading.
-        elements.push({
-          type,
-          material: MATERIALS.Columna,
-          startX: round((mx(left) + mx(right)) / 2),
-          startY: round((my(top) + my(bottom)) / 2),
-          endX: null,
-          endY: null,
-          width: round(sizeX),
-          height: DEFAULTS.columnHeight,
-          thickness: round(sizeY),
-          confidence,
-        });
-      } else {
-        if (mx(right) - mx(left) < 0.3 || my(bottom) - my(top) < 0.3) continue;
-        elements.push({
-          type,
-          material: MATERIALS[type],
-          startX: mx(left),
-          startY: my(top),
-          endX: mx(right),
-          endY: my(bottom),
-          width: null,
-          height: null,
-          thickness: type === 'Losa' ? DEFAULTS.slabThickness : null,
-          confidence,
-        });
+  /** Compares how many doors, windows and columns each reading found. */
+  static crossCheck(elements: DetectedElement[], reading: GeminiPlanReading): string[] {
+    const warnings: string[] = [];
+    const geminiElements = Array.isArray(reading.elements) ? reading.elements : [];
+    for (const { type, label } of CHECKED) {
+      const geometric = elements.filter((e) => e.type === type).length;
+      const seen = geminiElements.filter((e) => e?.type === type).length;
+      if (geometric !== seen && Math.abs(geometric - seen) >= Math.max(1, Math.round(Math.max(geometric, seen) * 0.2))) {
+        warnings.push(`El detector geométrico encontró ${geometric} ${label} y Gemini ve ${seen}. Revisa las ${label} en el plano.`);
       }
     }
+    return warnings;
+  }
 
-    if (!elements.some((e) => e.type === 'Muro')) {
-      throw new GeminiError('Gemini no encontró muros en el plano. Revisa la imagen o prueba con el detector local.');
-    }
-
-    // Without a slab drawn, add one over the wall bounds so the 3D model has a floor, marked as an assumption.
-    let slabAssumed = false;
-    if (!elements.some((e) => e.type === 'Losa')) {
-      const walls = elements.filter((e) => e.type === 'Muro');
-      const xs = walls.flatMap((w) => [w.startX, w.endX ?? w.startX]);
-      const ys = walls.flatMap((w) => [w.startY, w.endY ?? w.startY]);
-      elements.push({
-        type: 'Losa',
-        material: MATERIALS.Losa,
-        startX: Math.min(...xs),
-        startY: Math.min(...ys),
-        endX: Math.max(...xs),
-        endY: Math.max(...ys),
-        width: null,
-        height: null,
-        thickness: DEFAULTS.slabThickness,
-        confidence: 0.5,
-      });
-      slabAssumed = true;
-    }
-
-    const rooms = (Array.isArray(reading.rooms) ? reading.rooms : [])
-      .filter((r) => r && typeof r.name === 'string' && [r.x1, r.y1, r.x2, r.y2].every(finite))
-      .slice(0, 60)
-      .map((r) => {
-        const x1 = mx(Math.min(r.x1, r.x2));
-        const y1 = my(Math.min(r.y1, r.y2));
-        const x2 = mx(Math.max(r.x1, r.x2));
-        const y2 = my(Math.max(r.y1, r.y2));
-        return {
-          name: r.name.slice(0, 60),
-          x1,
-          y1,
-          x2,
-          y2,
-          areaM2: round((x2 - x1) * (y2 - y1)),
-          confidence: round(clamp(finite(r.confidence) ? r.confidence : 0.5, 0, 1), 4),
-        };
-      });
-
-    const dimensions = (Array.isArray(reading.dimensions) ? reading.dimensions : [])
-      .filter((d) => d && typeof d.text === 'string')
-      .slice(0, 80)
-      .map((d) => ({ text: d.text.slice(0, 40), meters: finite(d.meters) ? round(d.meters, 3) : null }));
-
-    const scaleText = typeof reading.scaleText === 'string' ? reading.scaleText.slice(0, 20) : null;
-    if (scaleText && scaleText.replace(/\s/g, '') !== image.scale.replace(/\s/g, '')) {
-      issues.push(`El plano indica escala ${scaleText}, pero se analizó con ${image.scale}. Confírmala.`);
-    }
-    if (!scaleText && dimensions.length === 0) {
-      issues.push('El plano no muestra escala ni cotas: confirma una medida de referencia antes de usar las dimensiones.');
-    }
-
-    const assumptions = [
-      { field: 'Altura de muros', value: `${DEFAULTS.wallHeight} m`, source: 'supuesto' },
-      { field: 'Espesor de muros', value: `${DEFAULTS.wallThickness} m`, source: 'supuesto' },
-      { field: 'Altura de columnas', value: `${DEFAULTS.columnHeight} m`, source: 'supuesto' },
-      { field: 'Altura de puertas', value: `${DEFAULTS.doorHeight} m`, source: 'supuesto' },
-      { field: 'Altura de ventanas', value: `${DEFAULTS.windowHeight} m`, source: 'supuesto' },
-      { field: 'Espesor de losa', value: `${DEFAULTS.slabThickness} m`, source: 'supuesto' },
-      { field: 'Escala', value: image.scale, source: scaleText ? 'detectado' : 'indicado por el usuario' },
-      ...(slabAssumed ? [{ field: 'Losa', value: 'Sobre el contorno de los muros', source: 'supuesto' }] : []),
+  static geometricAssumptions(scale: string, scaleText: string | null) {
+    return [
+      { field: 'Escala', value: scale, source: scaleText ? 'detectado' : 'indicado por el usuario' },
+      { field: 'Espesor de muros', value: 'Medido en el dibujo', source: 'detectado' },
+      { field: 'Altura de muros', value: '2.5 m', source: 'supuesto' },
+      { field: 'Altura de columnas', value: '2.8 m', source: 'supuesto' },
+      { field: 'Altura de puertas', value: '2.1 m', source: 'supuesto' },
+      { field: 'Altura de ventanas', value: '1.2 m', source: 'supuesto' },
+      { field: 'Vigas', value: 'Entre columnas unidas por muro, 0.25 × 0.35 m', source: 'supuesto' },
+      { field: 'Espesor de losa', value: '0.12 m', source: 'supuesto' },
     ];
-
-    const count = (type: ElementTypeName) => elements.filter((e) => e.type === type).length;
-    return {
-      elements,
-      summary: {
-        analyzer: image.name,
-        modelIdentifier: image.modelIdentifier,
-        imageSize: { width: image.width, height: image.height },
-        metersPerPixel: round(mpp, 5),
-        scaleText,
-        warnings: issues,
-        assumptions,
-        rooms,
-        dimensions,
-        counts: {
-          walls: count('Muro'),
-          columns: count('Columna'),
-          doors: count('Puerta'),
-          windows: count('Ventana'),
-          beams: count('Viga'),
-          stairs: count('Escalera'),
-          rooms: rooms.length,
-        },
-        note: 'Gemini interpreta el dibujo; las medidas salen de la escala y los valores sin cota son supuestos editables.',
-      },
-    };
   }
 }

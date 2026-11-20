@@ -1,58 +1,59 @@
 /**
- * What Gemini must return when it reads a plan. Coordinates are normalized
+ * What Gemini must return when it reads a plan (standard JSON Schema, sent as
+ * responseJsonSchema). Coordinates are normalized
  * from 0 to 1000 over the image (0,0 = top-left corner), which is the box
  * convention Gemini was trained with; the analyzer converts them to meters.
  */
 export const PLAN_TYPES = ['Muro', 'Columna', 'Viga', 'Losa', 'Puerta', 'Ventana', 'Escalera'] as const;
 
-const NUM = { type: 'NUMBER' };
+const NUM = { type: 'number', minimum: 0, maximum: 1000 };
 
 export const PLAN_RESPONSE_SCHEMA = {
-  type: 'OBJECT',
+  type: 'object',
   properties: {
-    legible: { type: 'BOOLEAN', description: 'false si el plano no se puede interpretar con confianza' },
+    legible: { type: 'boolean', description: 'false si el plano no se puede interpretar con confianza' },
     issues: {
-      type: 'ARRAY',
+      type: 'array',
       description: 'Problemas de calidad: borroso, inclinado, recortado, sin escala, manuscrito...',
-      items: { type: 'STRING' },
+      items: { type: 'string' },
     },
-    scaleText: { type: 'STRING', nullable: true, description: 'Escala escrita en el plano, p. ej. "1:100", o null' },
+    scaleText: { type: ['string', 'null'], description: 'Escala escrita en el plano, p. ej. "1:100", o null' },
     elements: {
-      type: 'ARRAY',
+      type: 'array',
       items: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
-          type: { type: 'STRING', enum: [...PLAN_TYPES] },
+          type: { type: 'string', enum: [...PLAN_TYPES] },
           x1: NUM,
           y1: NUM,
           x2: NUM,
           y2: NUM,
-          confidence: { type: 'NUMBER', description: '0 a 1, qué tan seguro estás' },
+          confidence: { type: 'number', minimum: 0, maximum: 1, description: '0 a 1, qué tan seguro estás' },
         },
         required: ['type', 'x1', 'y1', 'x2', 'y2', 'confidence'],
       },
     },
     rooms: {
-      type: 'ARRAY',
+      type: 'array',
       items: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
-          name: { type: 'STRING' },
+          name: { type: 'string' },
           x1: NUM,
           y1: NUM,
           x2: NUM,
           y2: NUM,
-          confidence: NUM,
+          confidence: { type: 'number', minimum: 0, maximum: 1 },
         },
         required: ['name', 'x1', 'y1', 'x2', 'y2', 'confidence'],
       },
     },
     dimensions: {
-      type: 'ARRAY',
+      type: 'array',
       description: 'Cotas escritas en el plano',
       items: {
-        type: 'OBJECT',
-        properties: { text: { type: 'STRING' }, meters: { type: 'NUMBER', nullable: true } },
+        type: 'object',
+        properties: { text: { type: 'string' }, meters: { type: ['number', 'null'] } },
         required: ['text'],
       },
     },
