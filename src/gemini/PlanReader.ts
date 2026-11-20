@@ -7,6 +7,7 @@ import { INTERPRETATION_PROMPT, INTERPRETATION_RESPONSE_SCHEMA, PLAN_PROMPT, PLA
 
 /** Longest side sent to Gemini. More pixels do not improve the reading and cost tokens. */
 const SEND_SIDE = 2048;
+const INTERPRETATION_TIMEOUT_MS = 30_000;
 const MAX_ELEMENTS = 400;
 
 /**
@@ -103,6 +104,8 @@ export class GeminiPlanReader {
       schema: interpretOnly ? INTERPRETATION_RESPONSE_SCHEMA : PLAN_RESPONSE_SCHEMA,
       temperature: 0.1,
       quick: interpretOnly,
+      // Live, gemini-3.8-flash sometimes hangs for the full 90 s while the lite model answers in ~15 s.
+      ...(interpretOnly ? { timeoutMs: INTERPRETATION_TIMEOUT_MS } : {}),
     });
     if (interpretOnly && !Array.isArray(reading.elements)) reading.elements = [];
     return { reading, width, height };
