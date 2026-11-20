@@ -5,11 +5,27 @@ export class BadRequestError extends Error {}
 const ACCEPTED = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
 
 /**
+ * The URL is compared after the URL parser normalizes it, so "user@host",
+ * "host.evil.com", "../" segments or odd casing cannot slip past a prefix.
+ */
+export function isAllowedImageUrl(url: string, prefixes: string[] = config.imageUrlPrefixes): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.username || parsed.password) return false;
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+  return prefixes.some((prefix) => parsed.href.startsWith(prefix));
+}
+
+/**
  * Downloads the plan image from the backend. Only URLs from the allowed
  * prefixes are accepted, so the service cannot be used to reach other sites.
  */
 export async function downloadImage(url: string): Promise<Buffer> {
-  if (!config.imageUrlPrefixes.some((prefix) => url.startsWith(prefix))) {
+  if (!isAllowedImageUrl(url)) {
     throw new BadRequestError('La imagen debe venir del backend de Render.IA.');
   }
 
