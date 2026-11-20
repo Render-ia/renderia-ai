@@ -1,6 +1,7 @@
 import { metersPerPixel } from '../scale.ts';
 import { BinaryImage } from '../vision/BinaryImage.ts';
 import { ColumnDetector } from '../vision/ColumnDetector.ts';
+import { CoreDetector } from '../vision/CoreDetector.ts';
 import { findOpenings, inferBeams, wallBounds } from '../vision/StructureInference.ts';
 import { estimateWallThickness } from '../vision/StrokeWidth.ts';
 import { WallDetector } from '../vision/WallDetector.ts';
@@ -16,6 +17,7 @@ const WINDOW_HEIGHT = 1.2;
 const BEAM_WIDTH = 0.25;
 const BEAM_DEPTH = 0.35;
 const SLAB_THICKNESS = 0.12;
+const CORE_HEIGHT = 2.8;
 
 const round = (value: number, digits = 2) => Number(value.toFixed(digits));
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -31,7 +33,7 @@ export class LocalVisionAnalyzer implements PlanAnalyzer {
   readonly name = 'Detector de visión local';
 
   async analyze(input: AnalysisInput): Promise<AnalysisOutput> {
-    const { image: raw, factor, threshold } = await BinaryImage.fromBuffer(input.image, WORK_SIDE);
+    const { image: raw, lines, factor, threshold } = await BinaryImage.fromBuffer(input.image, WORK_SIDE);
     if (raw.inkRatio() < 0.002) {
       throw new Error('El plano parece estar en blanco. Revisa que la imagen tenga el dibujo.');
     }
@@ -58,6 +60,9 @@ export class LocalVisionAnalyzer implements PlanAnalyzer {
 
     const openings = findOpenings(walls, bounds, 0.55 / mpp, 2.6 / mpp, 1.1 / mpp);
     const beams = inferBeams(columns, walls, wallPx);
+    const core = new CoreDetector(lines, clean, mpp).detect();
+    const stairs = core.filter((feature) => feature.kind === 'stair');
+    const elevators = core.filter((feature) => feature.kind === 'elevator');
 
     const elements: DetectedElement[] = [];
 
@@ -126,6 +131,37 @@ export class LocalVisionAnalyzer implements PlanAnalyzer {
       });
     }
 
+    for (const stair of stairs) {
+      // Width = across the steps, thickness = length of the run; the end point gives the direction.
+      elements.push({
+        type: 'Escalera',
+        material: 'Concreto reforzado',
+        startX: toM(stair.centerX),
+        startY: toM(stair.centerY),
+        endX: toM(stair.centerX + (stair.alongX ? 1 / mpp : 0)),
+        endY: toM(stair.centerY + (stair.alongX ? 0 : 1 / mpp)),
+        width: toM(stair.alongX ? stair.sizeY : stair.sizeX),
+        height: CORE_HEIGHT,
+        thickness: toM(stair.alongX ? stair.sizeX : stair.sizeY),
+        confidence: 0.78,
+      });
+    }
+
+    for (const elevator of elevators) {
+      elements.push({
+        type: 'Ascensor',
+        material: null,
+        startX: toM(elevator.centerX),
+        startY: toM(elevator.centerY),
+        endX: null,
+        endY: null,
+        width: toM(elevator.sizeX),
+        height: CORE_HEIGHT,
+        thickness: toM(elevator.sizeY),
+        confidence: 0.82,
+      });
+    }
+
     elements.push({
       type: 'Losa',
       material: 'Concreto reforzado',
@@ -156,6 +192,8 @@ export class LocalVisionAnalyzer implements PlanAnalyzer {
           doors: openings.filter((o) => o.kind === 'door').length,
           windows: openings.filter((o) => o.kind === 'window').length,
           beams: beams.length,
+          stairs: stairs.length,
+          elevators: elevators.length,
         },
       },
     };

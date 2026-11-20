@@ -1,5 +1,5 @@
 /** Element types of the element_types catalog. */
-export type ElementTypeName = 'Muro' | 'Columna' | 'Viga' | 'Losa' | 'Puerta' | 'Ventana' | 'Escalera';
+export type ElementTypeName = 'Muro' | 'Columna' | 'Viga' | 'Losa' | 'Puerta' | 'Ventana' | 'Escalera' | 'Ascensor';
 
 /**
  * Element found in a plan. Coordinates and sizes are in meters on the plan

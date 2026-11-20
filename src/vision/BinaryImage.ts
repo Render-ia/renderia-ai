@@ -13,6 +13,9 @@ export interface Box {
  * 0 = paper. Morphology operations use an integral image, so each one runs
  * in linear time whatever the window size.
  */
+/** Gray level under which a pixel can belong to a thin line of the drawing. */
+const LINE_THRESHOLD = 215;
+
 export class BinaryImage {
   constructor(
     readonly width: number,
@@ -24,7 +27,7 @@ export class BinaryImage {
    * Decodes an image (PNG, JPG, WEBP or SVG), reduces it so its longest side
    * is at most `maxSide`, and separates ink from paper with Otsu's threshold.
    */
-  static async fromBuffer(buffer: Buffer, maxSide: number): Promise<{ image: BinaryImage; factor: number; threshold: number }> {
+  static async fromBuffer(buffer: Buffer, maxSide: number): Promise<{ image: BinaryImage; lines: BinaryImage; factor: number; threshold: number }> {
     const metadata = await sharp(buffer).metadata();
     const naturalWidth = metadata.width ?? 0;
     const naturalHeight = metadata.height ?? 0;
@@ -56,8 +59,12 @@ export class BinaryImage {
     const threshold = BinaryImage.otsu(gray);
     const data = new Uint8Array(width * height);
     for (let i = 0; i < gray.length; i++) data[i] = gray[i] < threshold ? 1 : 0;
+    // Thin gray lines (stair treads, elevator crosses) fade when the image is reduced,
+    // so they are read with a looser threshold that still leaves light fills out.
+    const lineData = new Uint8Array(width * height);
+    for (let i = 0; i < gray.length; i++) lineData[i] = gray[i] < Math.max(threshold, LINE_THRESHOLD) ? 1 : 0;
 
-    return { image: new BinaryImage(width, height, data), factor, threshold };
+    return { image: new BinaryImage(width, height, data), lines: new BinaryImage(width, height, lineData), factor, threshold };
   }
 
   /** Otsu's method: the gray level that best splits ink from paper. */

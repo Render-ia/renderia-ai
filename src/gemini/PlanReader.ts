@@ -32,6 +32,7 @@ const MATERIALS: Record<ElementTypeName, string | null> = {
   Puerta: 'Madera',
   Ventana: null,
   Escalera: 'Concreto reforzado',
+  Ascensor: null,
 };
 
 interface RawBox {
@@ -133,7 +134,7 @@ export class GeminiPlanReader {
     const raw = Array.isArray(reading.elements) ? reading.elements : [];
     for (const item of raw.slice(0, MAX_ELEMENTS)) {
       const type = item?.type as ElementTypeName;
-      if (!PLAN_TYPES.includes(type)) continue;
+      if (!(PLAN_TYPES as readonly string[]).includes(type)) continue;
       if (![item.x1, item.y1, item.x2, item.y2].every(finite)) continue;
       const confidence = round(clamp(finite(item.confidence) ? item.confidence : 0.5, 0, 1), 4);
       let { x1, y1, x2, y2 } = item;
