@@ -44,9 +44,11 @@ export class GeminiAnalyzer implements PlanAnalyzer {
 
   async analyze(input: AnalysisInput): Promise<AnalysisOutput> {
     const model = resolveGeminiModel(input.modelIdentifier);
-    const [geometric, gemini] = await Promise.allSettled([
-      this.geometry.analyze(input),
-      this.reader.read(input.image, model),
+    // The detector takes a few seconds; when it reads the plan, Gemini only has to interpret it,
+    // which is several times faster than asking it for every element again.
+    const [geometric] = await Promise.allSettled([this.geometry.analyze(input)]);
+    const [gemini] = await Promise.allSettled([
+      this.reader.read(input.image, model, { interpretOnly: geometric.status === 'fulfilled' }),
     ]);
 
     let interpretation: AnalysisOutput | null = null;

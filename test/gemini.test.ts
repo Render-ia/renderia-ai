@@ -113,6 +113,25 @@ test('the client asks for JSON with a schema and retries once on 503', async () 
   assert.ok(calls[1].config?.abortSignal instanceof AbortSignal, 'every call has a timeout');
 });
 
+test('with the geometry measured, Gemini is only asked to interpret, with short reasoning', async () => {
+  const image = await readFile(samplePath);
+  const { calls, client } = fakeGemini([reading({ elements: [] })]);
+  const analyzer = new GeminiAnalyzer(new GeminiPlanReader(client), new FixedGeometry(geometricOutput));
+  await analyzer.analyze({ image, scale: '1:100', modelIdentifier: 'gemini:flash' });
+  const schema = calls[0].config?.responseJsonSchema as { properties: Record<string, unknown> };
+  assert.equal(schema.properties.elements, undefined, 'no element list is requested');
+  assert.ok(schema.properties.rooms);
+  assert.equal(calls[0].config?.thinkingConfig?.thinkingLevel, 'LOW');
+});
+
+test('a model that rejects the thinking level is asked again without it', async () => {
+  const { calls, client } = fakeGemini([400, { ok: true }]);
+  const result = await client.generateJson<{ ok: boolean }>({ model: 'gemini-3.8-flash', contents: [], schema: {}, quick: true });
+  assert.deepEqual(result, { ok: true });
+  assert.ok(calls[0].config?.thinkingConfig);
+  assert.equal(calls[1].config?.thinkingConfig, undefined);
+});
+
 test('when the main model stays saturated, the client answers with the backup model', async () => {
   const { calls, client } = fakeGemini([503, 503, 503, { ok: true }]);
   const result = await client.generateJson<{ ok: boolean }>({ model: 'gemini-3.8-flash', contents: [], schema: {} });

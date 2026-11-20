@@ -3,7 +3,7 @@ import { assumption } from '../analyzers/assumptions.ts';
 import type { AnalysisOutput, DetectedElement, ElementTypeName } from '../analyzers/PlanAnalyzer.ts';
 import { metersPerPixel } from '../scale.ts';
 import { GeminiClient, GeminiError } from './GeminiClient.ts';
-import { PLAN_PROMPT, PLAN_RESPONSE_SCHEMA, PLAN_TYPES } from './planSchema.ts';
+import { INTERPRETATION_PROMPT, INTERPRETATION_RESPONSE_SCHEMA, PLAN_PROMPT, PLAN_RESPONSE_SCHEMA, PLAN_TYPES } from './planSchema.ts';
 
 /** Longest side sent to Gemini. More pixels do not improve the reading and cost tokens. */
 const SEND_SIDE = 2048;
@@ -69,7 +69,15 @@ export class GeminiPlanReader {
   }
 
   /** Raw interpretation of the plan, plus the size of the image it refers to. */
-  async read(image: Buffer, model: string): Promise<{ reading: GeminiPlanReading; width: number; height: number }> {
+  /**
+   * `interpretOnly`: the geometry is already measured, so Gemini only reads rooms,
+   * dimensions and scale (a much shorter answer).
+   */
+  async read(
+    image: Buffer,
+    model: string,
+    { interpretOnly = false }: { interpretOnly?: boolean } = {},
+  ): Promise<{ reading: GeminiPlanReading; width: number; height: number }> {
     const metadata = await sharp(image).metadata();
     const width = metadata.width ?? 0;
     const height = metadata.height ?? 0;
@@ -86,12 +94,17 @@ export class GeminiPlanReader {
       contents: [
         {
           role: 'user',
-          parts: [{ text: PLAN_PROMPT }, { inlineData: { mimeType: 'image/png', data: png.toString('base64') } }],
+          parts: [
+            { text: interpretOnly ? INTERPRETATION_PROMPT : PLAN_PROMPT },
+            { inlineData: { mimeType: 'image/png', data: png.toString('base64') } },
+          ],
         },
       ],
-      schema: PLAN_RESPONSE_SCHEMA,
+      schema: interpretOnly ? INTERPRETATION_RESPONSE_SCHEMA : PLAN_RESPONSE_SCHEMA,
       temperature: 0.1,
+      quick: interpretOnly,
     });
+    if (interpretOnly && !Array.isArray(reading.elements)) reading.elements = [];
     return { reading, width, height };
   }
 

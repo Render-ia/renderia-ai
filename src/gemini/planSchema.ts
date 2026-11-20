@@ -75,3 +75,28 @@ Analiza la imagen y devuelve SOLO lo que se ve dibujado. Reglas:
 - legible=false SOLO si la imagen no es un plano o no se distinguen los muros. Textos pequeños o poco nítidos
   no hacen ilegible el plano: menciónalos en issues y sigue con los muros, columnas, vanos y espacios que sí se ven.
 - Si no es un plano, responde legible=false, explica en issues y deja las listas vacías.`;
+
+/**
+ * Lighter request used when the geometric detector already measured the plan:
+ * Gemini only interprets (rooms, dimensions, scale), so its answer is short and fast.
+ */
+export const INTERPRETATION_RESPONSE_SCHEMA = {
+  type: 'object',
+  properties: {
+    legible: PLAN_RESPONSE_SCHEMA.properties.legible,
+    issues: PLAN_RESPONSE_SCHEMA.properties.issues,
+    scaleText: PLAN_RESPONSE_SCHEMA.properties.scaleText,
+    rooms: PLAN_RESPONSE_SCHEMA.properties.rooms,
+    dimensions: PLAN_RESPONSE_SCHEMA.properties.dimensions,
+  },
+  required: ['legible', 'issues', 'rooms', 'dimensions'],
+};
+
+export const INTERPRETATION_PROMPT = `Eres un asistente de interpretación de planos arquitectónicos 2D para ingeniería civil.
+Los muros, columnas y vanos ya los midió un detector geométrico: NO los listes. Devuelve solo:
+- Habitaciones (rooms): nombre como está escrito (o "Espacio" si no tiene) y su caja, con coordenadas
+  normalizadas de 0 a 1000 sobre la imagen completa; (0,0) es la esquina superior izquierda.
+- Cotas (dimensions): el texto de cada cota legible y su valor en metros si se puede leer.
+- scaleText: la escala escrita en el plano, o null.
+- issues: problemas de calidad (borroso, inclinado, recortado, textos ilegibles).
+- legible=false SOLO si la imagen no es un plano. No inventes nada que no se vea.`;

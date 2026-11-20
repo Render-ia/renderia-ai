@@ -1,4 +1,4 @@
-import { ApiError, GoogleGenAI, type GenerateContentParameters, type GenerateContentResponse } from '@google/genai';
+import { ApiError, GoogleGenAI, ThinkingLevel, type GenerateContentParameters, type GenerateContentResponse } from '@google/genai';
 import { config } from '../config.ts';
 import { GeminiError } from './errors.ts';
 import { GeminiBudget } from './GeminiBudget.ts';
@@ -22,6 +22,8 @@ export interface JsonRequest {
   /** Standard JSON Schema; Gemini answers with JSON that follows it. */
   schema: Record<string, unknown>;
   temperature?: number;
+  /** Short reasoning for simple reading tasks: answers much sooner. */
+  quick?: boolean;
 }
 
 export interface ImageRequest {
@@ -75,6 +77,7 @@ export class GeminiClient {
           temperature: request.temperature ?? 0.1,
           responseMimeType: 'application/json',
           responseJsonSchema: request.schema,
+          ...(request.quick ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } } : {}),
         },
       },
       'text',
@@ -146,6 +149,13 @@ export class GeminiClient {
       } catch (error) {
         if (error instanceof GeminiError) throw error;
         lastStatus = error instanceof ApiError ? error.status : 0;
+        // A model that does not accept the thinking level gets the same request without it.
+        if (lastStatus === 400 && params.config?.thinkingConfig) {
+          const { thinkingConfig: _ignored, ...rest } = params.config;
+          params = { ...params, config: rest };
+          console.warn('[gemini] el modelo no acepta thinkingLevel; se reintenta sin él');
+          continue;
+        }
         const retry = attempt < 3 && RETRYABLE.has(lastStatus);
         // Only the status goes to the log: the error body can echo the prompt or the plan.
         console.warn(`[gemini] intento ${attempt} falló (estado ${lastStatus || 'sin respuesta'})`);
