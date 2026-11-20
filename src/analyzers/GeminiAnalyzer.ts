@@ -59,7 +59,7 @@ export class GeminiAnalyzer implements PlanAnalyzer {
           scale: input.scale,
           modelIdentifier: model,
           name: this.name,
-        });
+        }, { requireWalls: geometric.status !== 'fulfilled' });
       } catch (error) {
         geminiProblem = (error as Error).message;
       }
@@ -86,6 +86,7 @@ export class GeminiAnalyzer implements PlanAnalyzer {
           rooms: extra.rooms ?? [],
           dimensions: extra.dimensions ?? [],
           scaleText: extra.scaleText ?? null,
+          geminiSeen: gemini.status === 'fulfilled' ? GeminiAnalyzer.seen(gemini.value.reading) : null,
           assumptions: GeminiAnalyzer.geometricAssumptions(input.scale, (extra.scaleText as string | null) ?? null),
           warnings,
         },
@@ -117,9 +118,17 @@ export class GeminiAnalyzer implements PlanAnalyzer {
   }
 
   /** Compares how many doors, windows and columns each reading found. */
+  /** How much Gemini read, so the result shows what it contributed. */
+  static seen(reading: GeminiPlanReading): { elements: number; rooms: number; dimensions: number } {
+    const count = (list: unknown) => (Array.isArray(list) ? list.length : 0);
+    return { elements: count(reading.elements), rooms: count(reading.rooms), dimensions: count(reading.dimensions) };
+  }
+
   static crossCheck(elements: DetectedElement[], reading: GeminiPlanReading): string[] {
     const warnings: string[] = [];
     const geminiElements = Array.isArray(reading.elements) ? reading.elements : [];
+    // Gemini only read rooms and labels: there is nothing to compare element by element.
+    if (geminiElements.length === 0) return warnings;
     for (const { type, label } of CHECKED) {
       const geometric = elements.filter((e) => e.type === type).length;
       const seen = geminiElements.filter((e) => e?.type === type).length;

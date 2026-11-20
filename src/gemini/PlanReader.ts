@@ -99,6 +99,7 @@ export class GeminiPlanReader {
   static toOutput(
     reading: GeminiPlanReading,
     image: { width: number; height: number; scale: string; modelIdentifier: string; name: string },
+    { requireWalls = true }: { requireWalls?: boolean } = {},
   ): AnalysisOutput {
     const issues = Array.isArray(reading.issues) ? reading.issues.filter((i) => typeof i === 'string').slice(0, 10) : [];
     const hasContent = (Array.isArray(reading.elements) && reading.elements.length > 0) || (Array.isArray(reading.rooms) && reading.rooms.length > 0);
@@ -185,7 +186,7 @@ export class GeminiPlanReader {
       }
     }
 
-    if (!elements.some((e) => e.type === 'Muro')) {
+    if (requireWalls && !elements.some((e) => e.type === 'Muro')) {
       throw new GeminiError('Gemini no encontró muros en el plano. Revisa la imagen o prueba con el detector local.');
     }
 
