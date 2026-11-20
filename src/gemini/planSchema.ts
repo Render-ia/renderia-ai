@@ -72,4 +72,6 @@ Analiza la imagen y devuelve SOLO lo que se ve dibujado. Reglas:
 - Habitaciones (rooms): nombre como está escrito (o "Espacio" si no tiene) y su caja.
 - Cotas (dimensions): copia el texto de cada cota legible y su valor en metros si se puede leer.
 - issues: menciona si la imagen está borrosa, inclinada, recortada, sin escala o con anotaciones a mano.
-- Si no es un plano o no se puede leer, responde legible=false, explica en issues y deja las listas vacías.`;
+- legible=false SOLO si la imagen no es un plano o no se distinguen los muros. Textos pequeños o poco nítidos
+  no hacen ilegible el plano: menciónalos en issues y sigue con los muros, columnas, vanos y espacios que sí se ven.
+- Si no es un plano, responde legible=false, explica en issues y deja las listas vacías.`;

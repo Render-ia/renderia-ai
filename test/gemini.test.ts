@@ -65,6 +65,12 @@ test('Gemini reading becomes elements in meters with snapped walls and declared 
   assert.ok(assumptions.some((a) => a.key === 'wallHeight' && a.source === 'assumed'));
 });
 
+test('a doubtful "not legible" that still brings elements keeps them and turns the issue into a warning', () => {
+  const output = GeminiPlanReader.toOutput(reading({ legible: false, issues: ['textos pequeños'] }), IMAGE);
+  assert.ok(output.elements.length > 0);
+  assert.ok((output.summary.warnings as string[]).includes('textos pequeños'));
+});
+
 test('coordinates outside the image are clamped and confidence stays in 0..1', () => {
   const { elements } = GeminiPlanReader.toOutput(
     reading({ elements: [{ type: 'Muro', x1: -300, y1: 200, x2: 2000, y2: 200, confidence: 3 }] }),
@@ -76,7 +82,10 @@ test('coordinates outside the image are clamped and confidence stays in 0..1', (
 });
 
 test('an illegible plan or one without walls is rejected with a clear message', () => {
-  assert.throws(() => GeminiPlanReader.toOutput(reading({ legible: false, issues: ['borroso'] }), IMAGE), /borroso/);
+  assert.throws(
+    () => GeminiPlanReader.toOutput(reading({ legible: false, issues: ['borroso'], elements: [], rooms: [] }), IMAGE),
+    /borroso/,
+  );
   assert.throws(() => GeminiPlanReader.toOutput(reading({ elements: [] }), IMAGE), /no encontró muros/);
 });
 
