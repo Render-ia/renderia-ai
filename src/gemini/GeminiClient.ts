@@ -24,6 +24,8 @@ export interface JsonRequest {
   temperature?: number;
   /** Short reasoning for simple reading tasks: answers much sooner. */
   quick?: boolean;
+  /** Per-attempt limit for this request; a model that hangs gives way to the backup model sooner. */
+  timeoutMs?: number;
 }
 
 export interface ImageRequest {
@@ -81,6 +83,7 @@ export class GeminiClient {
         },
       },
       'text',
+      request.timeoutMs,
     );
     const text = response.text ?? '';
     if (!text.trim()) throw new GeminiError('Gemini devolvió una respuesta vacía.');
@@ -106,7 +109,11 @@ export class GeminiClient {
     return { mimeType: image.inlineData.mimeType ?? 'image/png', data: image.inlineData.data, note };
   }
 
-  private async call(params: GenerateContentParameters, kind: 'text' | 'image'): Promise<GenerateContentResponse> {
+  private async call(
+    params: GenerateContentParameters,
+    kind: 'text' | 'image',
+    timeoutMs = this.timeoutMs,
+  ): Promise<GenerateContentResponse> {
     if (!this.configured) {
       throw new GeminiError('Gemini no está configurado en el servicio de IA (falta GEMINI_API_KEY).');
     }
@@ -116,7 +123,7 @@ export class GeminiClient {
     this.budget.take(kind);
 
     try {
-      return await this.attempt(params);
+      return await this.attempt(params, timeoutMs);
     } catch (error) {
       // The main model is saturated: a lighter model of the same family usually still answers.
       const status = error instanceof GeminiStatusError ? error.status : -1;
@@ -126,7 +133,7 @@ export class GeminiClient {
       }
       console.warn(`[gemini] ${params.model} saturado, se intenta con ${backup}`);
       try {
-        return await this.attempt({ ...params, model: backup });
+        return await this.attempt({ ...params, model: backup }, timeoutMs);
       } catch (second) {
         throw second instanceof GeminiStatusError ? new GeminiError(GeminiClient.describeStatus(second.status)) : second;
       }
@@ -134,13 +141,13 @@ export class GeminiClient {
   }
 
   /** Up to three tries on one model, waiting a little longer each time. */
-  private async attempt(params: GenerateContentParameters): Promise<GenerateContentResponse> {
+  private async attempt(params: GenerateContentParameters, timeoutMs: number): Promise<GenerateContentResponse> {
     let lastStatus = 0;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         const response = await this.generate()({
           ...params,
-          config: { ...params.config, abortSignal: AbortSignal.timeout(this.timeoutMs) },
+          config: { ...params.config, abortSignal: AbortSignal.timeout(timeoutMs) },
         });
         if (response.promptFeedback?.blockReason) {
           throw new GeminiError('Gemini rechazó la solicitud por sus filtros de seguridad.');
